@@ -691,7 +691,15 @@ impl ShellSession {
                                     {
                                         writer
                                             .write_all(
-                                                format!("{}\r\n\x1b[2K", message.args.join(" "))
+                                                // Frames are raw terminal bytes and may be
+                                                // mid-line continuations, so nothing is
+                                                // appended here — only LF is widened to
+                                                // CRLF, which this raw pty needs and the
+                                                // browser terminal gets via convertEol.
+                                                message
+                                                    .args
+                                                    .join(" ")
+                                                    .replace('\n', "\r\n")
                                                     .as_bytes(),
                                             )
                                             .await
@@ -705,7 +713,11 @@ impl ShellSession {
                                     {
                                         writer
                                             .write_all(
-                                                format!("{}\r\n\x1b[2K", message.args.join(" "))
+                                                // Verbatim; see the install-output arm.
+                                                message
+                                                    .args
+                                                    .join(" ")
+                                                    .replace('\n', "\r\n")
                                                     .as_bytes(),
                                             )
                                             .await
@@ -714,7 +726,11 @@ impl ShellSession {
                                     WebsocketEvent::ServerConsoleOutput => {
                                         writer
                                             .write_all(
-                                                format!("{}\r\n\x1b[2K", message.args.join(" "))
+                                                // Verbatim; see the install-output arm.
+                                                message
+                                                    .args
+                                                    .join(" ")
+                                                    .replace('\n', "\r\n")
                                                     .as_bytes(),
                                             )
                                             .await
@@ -723,7 +739,11 @@ impl ShellSession {
                                     WebsocketEvent::ServerDaemonMessage => {
                                         writer
                                             .write_all(
-                                                format!("{}\r\n\x1b[2K", message.args.join(" "))
+                                                // Verbatim; see the install-output arm.
+                                                message
+                                                    .args
+                                                    .join(" ")
+                                                    .replace('\n', "\r\n")
                                                     .as_bytes(),
                                             )
                                             .await
@@ -808,7 +828,9 @@ impl ShellSession {
                                         Ok(stdout) => {
                                             if let Err(err) = writer
                                                 .write_all(
-                                                    format!("{stdout}\r\n\x1b[2K").as_bytes(),
+                                                    // Verbatim; see the frame-writing note
+                                                    // in the websocket branch above.
+                                                    stdout.replace('\n', "\r\n").as_bytes(),
                                                 )
                                                 .await
                                             {

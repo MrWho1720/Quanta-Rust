@@ -101,8 +101,11 @@ pub async fn handle_message(
                 while let Some(Ok(line)) = log_stream.next().await {
                     websocket_handler
                         .send_message(
+                            // Verbatim — logs_lines already terminates every frame, and
+                            // trimming here would eat the '\r' of any in-place redraw
+                            // replayed from scrollback.
                             WebsocketMessage::builder(WebsocketEvent::ServerConsoleOutput)
-                                .arg(line.trim())
+                                .arg(line)
                                 .build(),
                         )
                         .await;

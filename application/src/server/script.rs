@@ -30,11 +30,9 @@ pub async fn script_server(
         loop {
             match stdout_rx.recv().await {
                 Ok(data) => {
+                    // Frames already carry their own '\n' (see LineBuffer::next_line);
+                    // writing them verbatim reproduces the container's stream exactly.
                     if let Err(err) = buf_stdout_tx.write_all(data.as_bytes()).await {
-                        tracing::error!("Failed to write to script stdout buffer: {}", err);
-                        break;
-                    }
-                    if let Err(err) = buf_stdout_tx.write_all(b"\n").await {
                         tracing::error!("Failed to write to script stdout buffer: {}", err);
                         break;
                     }

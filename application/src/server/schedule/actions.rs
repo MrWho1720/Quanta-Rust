@@ -433,13 +433,17 @@ impl ScheduleAction {
 
                         while let Ok(line) = stdout.recv().await {
                             if line.to_lowercase().contains(&*contains) {
-                                return Some(line.to_compact_string());
+                                // Frames carry their terminator; a schedule variable is a
+                                // value, not terminal bytes, so trim it here.
+                                return Some(line.trim().to_compact_string());
                             }
                         }
                     } else {
                         while let Ok(line) = stdout.recv().await {
                             if line.contains(&**contains) {
-                                return Some(line.to_compact_string());
+                                // Frames carry their terminator; a schedule variable is a
+                                // value, not terminal bytes, so trim it here.
+                                return Some(line.trim().to_compact_string());
                             }
                         }
                     }

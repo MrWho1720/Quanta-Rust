@@ -736,9 +736,11 @@ impl Schedule {
                                             if let Some(output_into) = &output_into {
                                                 let mut execution_context =
                                                     ScheduleExecutionContext::new(schedule_uuid);
+                                                // Frames carry their terminator; a schedule
+                                                // variable is a value, not terminal bytes.
                                                 execution_context.store_variable(
                                                     output_into.clone(),
-                                                    line.to_compact_string(),
+                                                    line.trim().to_compact_string(),
                                                 );
                                                 nest_execution_context
                                                     .lock()
@@ -755,9 +757,11 @@ impl Schedule {
                                             if let Some(output_into) = &output_into {
                                                 let mut execution_context =
                                                     ScheduleExecutionContext::new(schedule_uuid);
+                                                // Frames carry their terminator; a schedule
+                                                // variable is a value, not terminal bytes.
                                                 execution_context.store_variable(
                                                     output_into.clone(),
-                                                    line.to_compact_string(),
+                                                    line.trim().to_compact_string(),
                                                 );
                                                 nest_execution_context
                                                     .lock()

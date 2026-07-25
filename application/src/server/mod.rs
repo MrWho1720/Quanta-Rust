@@ -890,8 +890,15 @@ impl Server {
                 match reader.read_line(&mut line).await {
                     Ok(0) => Ok(None),
                     Ok(_) => {
-                        let trimmed = line.trim_end_matches(['\n', '\r']);
-                        Ok(Some((compact_str::CompactString::from(trimmed), reader)))
+                        // Scrollback frames follow the same contract as live ones (see
+                        // LineBuffer::next_line): verbatim, terminator included, so the
+                        // panel writes them straight into the terminal. read_line already
+                        // keeps the '\n' — except on a final unterminated line, which
+                        // would otherwise run into the first live frame.
+                        if !line.ends_with('\n') {
+                            line.push('\n');
+                        }
+                        Ok(Some((compact_str::CompactString::from(line.as_str()), reader)))
                     }
                     Err(e) => Err(anyhow::Error::from(e)),
                 }
@@ -907,13 +914,17 @@ impl Server {
         Box::new(pinned)
     }
 
+    // Every frame on the wire is a fragment of a raw terminal byte stream (see
+    // LineBuffer::next_line), so these discrete one-line notices have to carry their own
+    // '\n' — a consumer writes frames verbatim and would otherwise continue the same row.
+
     pub fn log_daemon(&self, message: compact_str::CompactString) {
         self.websocket
             .send(
                 websocket::WebsocketMessage::builder(
                     websocket::WebsocketEvent::ServerDaemonMessage,
                 )
-                .arg(message)
+                .arg(compact_str::format_compact!("{message}\n"))
                 .build(),
             )
             .ok();
@@ -925,7 +936,7 @@ impl Server {
                 websocket::WebsocketMessage::builder(
                     websocket::WebsocketEvent::ServerInstallOutput,
                 )
-                .arg(message)
+                .arg(compact_str::format_compact!("{message}\n"))
                 .build(),
             )
             .ok();
@@ -940,7 +951,7 @@ impl Server {
                     websocket::WebsocketEvent::ServerConsoleOutput,
                 )
                 .arg(compact_str::format_compact!(
-                    "{} {}",
+                    "{} {}\n",
                     prelude,
                     nu_ansi_term::Style::new().bold().paint(message)
                 ))
@@ -961,13 +972,13 @@ impl Server {
 
     pub fn get_daemon_error(&self, message: &str) -> websocket::WebsocketMessage {
         websocket::WebsocketMessage::builder(websocket::WebsocketEvent::ServerDaemonMessage)
-            .arg(
+            .arg(compact_str::format_compact!(
+                "{}\n",
                 nu_ansi_term::Style::new()
                     .bold()
                     .on(nu_ansi_term::Color::Red)
                     .paint(message)
-                    .to_compact_string(),
-            )
+            ))
             .build()
     }
 
