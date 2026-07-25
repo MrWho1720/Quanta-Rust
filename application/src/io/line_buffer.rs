@@ -14,9 +14,36 @@ fn utf8_boundary(buf: &[u8], max: usize) -> usize {
         .unwrap_or(max)
 }
 
+/// Rewrites every `" \r"` into `"\r\n"`, in place — Wings' `bytes.Replace(line, cr, crr)`
+/// (`cr = " \r"`, `crr = "\r\n"`).
+///
+/// Games — Minecraft is the usual culprit — emit carriage returns wherever they think the
+/// terminal wraps, and a program painting a progress bar emits nothing else until it is
+/// done. Either way the frame has no `\n` to end it, so it sits in the buffer until
+/// `MAX_LINE_LENGTH` forces a split and the panel receives a burst of repaints that have
+/// already happened. Turning the return into a real line break gives every repaint its own
+/// self-terminating frame, which ships immediately.
+///
+/// The pattern is `" \r"` rather than a bare `\r` on purpose: it leaves `\r\n` alone, and
+/// it leaves a redraw that returns straight off a non-space character alone too, so those
+/// still reach the terminal verbatim and repaint in place.
+///
+/// Both sides are two bytes, so nothing shifts and no allocation is needed.
+fn rewrite_space_cr(buf: &mut [u8]) {
+    for i in 1..buf.len() {
+        if buf[i] == b'\r' && buf[i - 1] == b' ' {
+            buf[i - 1] = b'\r';
+            buf[i] = b'\n';
+        }
+    }
+}
+
 impl LineBuffer {
     const INITIAL_CAPACITY: usize = 10240; // 10 KiB
-    const MAX_LINE_LENGTH: usize = 5120; // 5 KiB
+    // Matches Wings' `maxBufferSize` (64 KiB, wings/system/utils.go) — the point at which
+    // it stops accumulating a single line. Was 5 KiB here, which forced a split roughly
+    // 12× more often on any output that goes a long way without a `\n`.
+    const MAX_LINE_LENGTH: usize = 65536; // 64 KiB
     const COMPACT_THRESHOLD: usize = 10240; // 10 KiB
 
     pub fn new() -> Self {
@@ -27,11 +54,20 @@ impl LineBuffer {
     }
 
     pub fn extend(&mut self, data: &[u8]) {
+        // One byte of overlap so a `" \r"` straddling two reads is still caught, but never
+        // back past `line_start` — those bytes have already been handed out.
+        let scan_from = self.line_start.max(self.buffer.len().saturating_sub(1));
+
         self.buffer.extend_from_slice(data);
+
+        if let Some(tail) = self.buffer.get_mut(scan_from..) {
+            rewrite_space_cr(tail);
+        }
     }
 
-    /// Next frame of container output, **verbatim** — the terminating `\n` is included
-    /// and nothing is trimmed.
+    /// Next frame of container output — the terminating `\n` is included and nothing is
+    /// trimmed. The bytes are those of the container's stream, with the one substitution
+    /// `extend` makes (see [`rewrite_space_cr`]).
     ///
     /// Frames are fragments of a raw terminal byte stream, not display lines; consumers
     /// write them straight into a terminal emulator. That is what makes an in-place
@@ -164,6 +200,48 @@ mod tests {
         lb.extend(b"\r 10%\r 55%\r100%\ndone\n");
         assert_eq!(lb.next_line(), Some(&b"\r 10%\r 55%\r100%\n"[..]));
         assert_eq!(lb.next_line(), Some(&b"done\n"[..]));
+    }
+
+    #[test]
+    fn space_cr_becomes_a_line_break() {
+        // Wings' substitution: a return that follows a space is a wrap the program guessed
+        // at, not a redraw. It becomes a real break so the piece ships without waiting for
+        // a `\n` that may never come.
+        let mut lb = LineBuffer::new();
+        lb.extend(b"loading \rloading. \rloading.. \rdone\n");
+        assert_eq!(lb.next_line(), Some(&b"loading\r\n"[..]));
+        assert_eq!(lb.next_line(), Some(&b"loading.\r\n"[..]));
+        assert_eq!(lb.next_line(), Some(&b"loading..\r\n"[..]));
+        assert_eq!(lb.next_line(), Some(&b"done\n"[..]));
+        assert_eq!(lb.next_line(), None);
+    }
+
+    #[test]
+    fn space_cr_split_across_two_extends_is_still_caught() {
+        let mut lb = LineBuffer::new();
+        lb.extend(b"tick ");
+        assert_eq!(lb.next_line(), None);
+        lb.extend(b"\rtock\n");
+        assert_eq!(lb.next_line(), Some(&b"tick\r\n"[..]));
+        assert_eq!(lb.next_line(), Some(&b"tock\n"[..]));
+    }
+
+    #[test]
+    fn redraw_off_a_non_space_still_reaches_the_terminal_verbatim() {
+        // The narrow pattern is the point: a progress bar returning straight off `%` is a
+        // real in-place repaint and must not be turned into a new row.
+        let mut lb = LineBuffer::new();
+        lb.extend(b"[##..] 40%\r[###.] 60%\n");
+        assert_eq!(lb.next_line(), Some(&b"[##..] 40%\r[###.] 60%\n"[..]));
+    }
+
+    #[test]
+    fn crlf_is_left_alone() {
+        let mut lb = LineBuffer::new();
+        lb.extend(b"a\r\nb\r\n");
+        assert_eq!(lb.next_line(), Some(&b"a\r\n"[..]));
+        assert_eq!(lb.next_line(), Some(&b"b\r\n"[..]));
+        assert_eq!(lb.next_line(), None);
     }
 
     #[test]
@@ -382,8 +460,9 @@ mod tests {
     #[test]
     fn split_frames_reassemble_into_the_original_stream() {
         // The contract the panel relies on: concatenating every frame reproduces the
-        // container's byte stream exactly, so writing them verbatim into a terminal is
-        // indistinguishable from feeding it the raw stream.
+        // container's byte stream — with the one `" \r"` substitution applied — so writing
+        // the frames into a terminal is indistinguishable from feeding it that stream.
+        // Note this bar returns off a space, so it is the case Wings breaks into rows.
         let mut stream = Vec::new();
         stream.extend_from_slice(b"boot\n");
         for pct in 0..=100 {
@@ -404,6 +483,9 @@ mod tests {
             frames.extend_from_slice(rest);
         }
 
-        assert_eq!(frames, stream);
+        let mut expected = stream.clone();
+        rewrite_space_cr(&mut expected);
+
+        assert_eq!(frames, expected);
     }
 }
