@@ -24,8 +24,8 @@ It installs Docker, drops the release binary at `/usr/local/bin/wings`, register
 systemd service and can apply the panel's join data. Overrides:
 
 ```bash
-# pin a version, or pull binaries from a different fork's releases
-WINGS_VERSION=1.1.0 WINGS_REPO=MrWho1720/Quanta-Rust bash <(curl -sSL .../install.sh)
+# pin a version, or pull binaries from upstream / a different fork's releases
+WINGS_VERSION=1.1.0 WINGS_REPO=calagopus/wings bash <(curl -sSL .../install.sh)
 ```
 
 For manual installation, refer to the [Docs](https://calagopus.com/docs/wings/installation).

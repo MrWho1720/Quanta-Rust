@@ -4,12 +4,12 @@
 #   bash <(curl -sSL https://raw.githubusercontent.com/MrWho1720/Quanta-Rust/main/install.sh)
 #
 # Env overrides:
-#   WINGS_REPO=owner/repo     release source        (default: calagopus/wings)
+#   WINGS_REPO=owner/repo     release source        (default: MrWho1720/Quanta-Rust)
 #   WINGS_VERSION=1.1.0       pin a version         (default: latest)
 
 set -euo pipefail
 
-WINGS_REPO="${WINGS_REPO:-calagopus/wings}"
+WINGS_REPO="${WINGS_REPO:-MrWho1720/Quanta-Rust}"
 WINGS_VERSION="${WINGS_VERSION:-latest}"
 
 BINARY=/usr/local/bin/wings
