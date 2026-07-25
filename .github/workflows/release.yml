@@ -35,11 +35,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # riscv64/ppc64le dropped for this fork: they roughly double CI time and no
-        # Quantum node runs them. Re-add both matrix entries if that changes.
         build:
           - x86_64-linux
           - aarch64-linux
+          - riscv64-linux
+          - ppc64le-linux
         include:
           - build: x86_64-linux
             os: ubuntu-24.04
@@ -47,6 +47,12 @@ jobs:
           - build: aarch64-linux
             os: ubuntu-24.04
             target: aarch64-unknown-linux-musl
+          - build: riscv64-linux
+            os: ubuntu-24.04
+            target: riscv64gc-unknown-linux-gnu
+          - build: ppc64le-linux
+            os: ubuntu-24.04
+            target: powerpc64le-unknown-linux-gnu
 
     steps:
       - name: Checkout sources
