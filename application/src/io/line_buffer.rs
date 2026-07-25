@@ -71,16 +71,29 @@ impl LineBuffer {
     ///
     /// Frames are fragments of a raw terminal byte stream, not display lines; consumers
     /// write them straight into a terminal emulator. That is what makes an in-place
-    /// redraw work: a program painting a progress bar with `\r` emits far more than
-    /// `MAX_LINE_LENGTH` bytes before its first `\n`, so it arrives as several frames,
-    /// and only a frame that actually ends in `\n` starts a new row. Trimming used to
-    /// eat the `\r` at exactly those seams, which is unrecoverable downstream — the
-    /// panel had no way to tell a continuation from a new line.
+    /// redraw work: only a frame that actually ends in `\n` starts a new row. Trimming
+    /// used to eat the `\r` at those seams, which is unrecoverable downstream — the panel
+    /// had no way to tell a continuation from a new line.
+    ///
+    /// A frame ends at `\r` as well as at `\n`. A progress bar emits no `\n` until it is
+    /// finished, so waiting for one buffers the entire animation and the panel receives
+    /// only its final state — the bar "appears instantly". `MAX_LINE_LENGTH` is no help:
+    /// it decides how many pieces that burst is torn into, not when it leaves. Wings
+    /// dodges this by rewriting `" \r"` into `"\r\n"`, but its pattern requires the space
+    /// (see [`rewrite_space_cr`]) and the common `print("\r[###] 40%", end="")` idiom
+    /// returns off the last character of the previous repaint, so nothing matches.
+    /// Ending the frame at the `\r` itself flushes every repaint and, because the bytes
+    /// are still verbatim, the terminal replays them in place.
     pub fn next_line(&mut self) -> Option<&[u8]> {
         let rest = self.buffer.get(self.line_start..)?;
 
-        let len = match rest.iter().position(|&b| b == b'\n') {
-            Some(pos) if pos < Self::MAX_LINE_LENGTH => pos + 1,
+        let len = match rest.iter().position(|&b| b == b'\n' || b == b'\r') {
+            // Hold a CRLF pair together when the `\n` has already arrived — otherwise
+            // Windows-style output emits two frames per line. If it has not arrived yet,
+            // send the `\r` now rather than stalling the redraw to find out.
+            Some(pos) if pos < Self::MAX_LINE_LENGTH => {
+                pos + 1 + usize::from(rest[pos] == b'\r' && rest.get(pos + 1) == Some(&b'\n'))
+            }
             // No newline within the chunk limit — force a split, but never mid-character:
             // the bytes are decoded with `from_utf8_lossy` downstream, and a straddled
             // character becomes one U+FFFD on *each* side of the seam, which is one cell
@@ -193,13 +206,32 @@ mod tests {
     }
 
     #[test]
-    fn preserves_in_line_carriage_returns() {
-        // One progress bar redrawing itself, then a real line break. The whole redraw
-        // sequence must arrive intact or the terminal cannot replay it in place.
+    fn each_redraw_leaves_as_its_own_frame() {
+        // One progress bar redrawing itself, then a real line break. Every repaint ships
+        // the moment it is complete — the bytes stay verbatim, so the terminal still
+        // replays them in place, but the panel is never holding an animation hostage
+        // waiting for a `\n` the bar will not emit until it finishes.
         let mut lb = LineBuffer::new();
         lb.extend(b"\r 10%\r 55%\r100%\ndone\n");
-        assert_eq!(lb.next_line(), Some(&b"\r 10%\r 55%\r100%\n"[..]));
+        assert_eq!(lb.next_line(), Some(&b"\r"[..]));
+        assert_eq!(lb.next_line(), Some(&b" 10%\r"[..]));
+        assert_eq!(lb.next_line(), Some(&b" 55%\r"[..]));
+        assert_eq!(lb.next_line(), Some(&b"100%\n"[..]));
         assert_eq!(lb.next_line(), Some(&b"done\n"[..]));
+        assert_eq!(lb.next_line(), None);
+    }
+
+    #[test]
+    fn the_actual_bot_loading_bar_animates() {
+        // `print(f"\r[{bar}] {i}% Complete", end="", flush=True)` — the `\r` follows the
+        // `e` of the previous repaint, so Wings' `" \r"` rewrite never fires here. Each
+        // repaint still has to leave on its own.
+        let mut lb = LineBuffer::new();
+        lb.extend("\r[██] 1% Complete\r[███] 2% Complete\n".as_bytes());
+        assert_eq!(lb.next_line(), Some(&b"\r"[..]));
+        assert_eq!(lb.next_line(), Some("[██] 1% Complete\r".as_bytes()));
+        assert_eq!(lb.next_line(), Some("[███] 2% Complete\n".as_bytes()));
+        assert_eq!(lb.next_line(), None);
     }
 
     #[test]
@@ -232,7 +264,10 @@ mod tests {
         // real in-place repaint and must not be turned into a new row.
         let mut lb = LineBuffer::new();
         lb.extend(b"[##..] 40%\r[###.] 60%\n");
-        assert_eq!(lb.next_line(), Some(&b"[##..] 40%\r[###.] 60%\n"[..]));
+        // Framed at the `\r`, but the `\r` itself survives — it is not turned into a
+        // newline the way `rewrite_space_cr` would, so the row repaints rather than scrolls.
+        assert_eq!(lb.next_line(), Some(&b"[##..] 40%\r"[..]));
+        assert_eq!(lb.next_line(), Some(&b"[###.] 60%\n"[..]));
     }
 
     #[test]
