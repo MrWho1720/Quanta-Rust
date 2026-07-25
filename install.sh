@@ -324,3 +324,4 @@ while menu "Wings — node daemon" \
         5) exit 0 ;;
     esac
 done
+ 
