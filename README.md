@@ -14,7 +14,21 @@ A rewrite of [Pterodactyl Wings](https://github.com/pterodactyl/wings) in the Ru
 
 ## Installation
 
-For installation instructions, please refer to the [Docs](https://calagopus.com/docs/wings/installation).
+Interactive installer (install, update, configure, SSL, uninstall):
+
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/MrWho1720/Quanta-Rust/main/install.sh)
+```
+
+It installs Docker, drops the release binary at `/usr/local/bin/wings`, registers the
+systemd service and can apply the panel's join data. Overrides:
+
+```bash
+# pin a version, or pull binaries from a different fork's releases
+WINGS_VERSION=1.1.0 WINGS_REPO=MrWho1720/Quanta-Rust bash <(curl -sSL .../install.sh)
+```
+
+For manual installation, refer to the [Docs](https://calagopus.com/docs/wings/installation).
 
 ## Added Config Options
 
